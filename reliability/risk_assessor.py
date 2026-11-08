@@ -1,3 +1,4 @@
+import re
 from typing import Dict, List
 
 
@@ -63,6 +64,27 @@ def assess_risk(
         reasons.append("Bare except was modified, verify correctness.")
 
     # ----------------------------
+    # Observable behavior change checks
+    # ----------------------------
+    # A fix can look "small" yet change what callers or users actually see.
+    # These signals mark the fix as a behavior change, which blocks auto-apply
+    # regardless of score.
+    behavior_changed = False
+
+    if original_code.count("print(") > fixed_code.count("print("):
+        score -= 15
+        behavior_changed = True
+        reasons.append(
+            "Fix removes print() output; logging.info is hidden by default, so users may no longer see it."
+        )
+
+    raise_pattern = r"\braise\b"
+    if len(re.findall(raise_pattern, fixed_code)) > len(re.findall(raise_pattern, original_code)):
+        score -= 15
+        behavior_changed = True
+        reasons.append("Fix adds new raise statement(s); callers may now get exceptions they did not before.")
+
+    # ----------------------------
     # Clamp score
     # ----------------------------
     score = max(0, min(100, score))
@@ -80,7 +102,8 @@ def assess_risk(
     # ----------------------------
     # Auto-fix policy
     # ----------------------------
-    should_autofix = level == "low"
+    # Behavior changes always go to a human, even when the score is low.
+    should_autofix = level == "low" and not behavior_changed
 
     if not reasons:
         reasons.append("No significant risks detected.")

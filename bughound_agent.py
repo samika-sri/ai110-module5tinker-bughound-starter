@@ -86,7 +86,7 @@ class BugHoundAgent:
         issues = self._parse_json_array_of_issues(raw)
 
         if issues is None:
-            self._log("ANALYZE", "LLM output was not parseable JSON. Falling back to heuristics.")
+            self._log("ANALYZE", "LLM output was not parseable JSON or had no valid issues. Falling back to heuristics.")
             return self._heuristic_analyze(code_snippet)
 
         return issues
@@ -187,18 +187,46 @@ class BugHoundAgent:
 
         return None
 
-    def _normalize_issues(self, arr: List[Any]) -> List[Dict[str, str]]:
+    VALID_SEVERITIES = {"low": "Low", "medium": "Medium", "high": "High"}
+
+    def _normalize_issues(self, arr: List[Any]) -> Optional[List[Dict[str, str]]]:
+        """
+        Validate each issue against the schema the analyzer prompt asks for.
+
+        An issue is accepted only if it has a non-empty string "type" and "msg",
+        and a "severity" of Low/Medium/High (case-insensitive). Anything else is
+        rejected instead of being padded with placeholder defaults.
+
+        Returns None if the model returned issues but *none* were valid, so the
+        caller can fall back to heuristics. An empty array from the model is a
+        legitimate "no issues" answer and is returned as [].
+        """
         issues: List[Dict[str, str]] = []
+        rejected = 0
         for item in arr:
             if not isinstance(item, dict):
+                rejected += 1
                 continue
-            issues.append(
-                {
-                    "type": str(item.get("type", "Issue")),
-                    "severity": str(item.get("severity", "Unknown")),
-                    "msg": str(item.get("msg", "")).strip(),
-                }
-            )
+
+            issue_type = item.get("type")
+            msg = item.get("msg")
+            severity = self.VALID_SEVERITIES.get(str(item.get("severity", "")).strip().lower())
+
+            if (
+                not isinstance(issue_type, str) or not issue_type.strip()
+                or not isinstance(msg, str) or not msg.strip()
+                or severity is None
+            ):
+                rejected += 1
+                continue
+
+            issues.append({"type": issue_type.strip(), "severity": severity, "msg": msg.strip()})
+
+        if rejected:
+            self._log("ANALYZE", f"Rejected {rejected} of {len(arr)} LLM issue(s) that did not match the schema.")
+
+        if arr and not issues:
+            return None
         return issues
 
     def _try_json_loads(self, s: str) -> Any:
