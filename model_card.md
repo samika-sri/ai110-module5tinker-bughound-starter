@@ -24,7 +24,6 @@ BugHound runs a five-step loop in `BugHoundAgent.run()`:
 4. **Test:** `reliability/risk_assessor.py` scores the fix from 0 to 100 and assigns a level: low (75+), medium (40–74) or high (below 40).
 5. **Reflect:** auto-apply is recommended only if the risk level is low **and** no behavior-change signal fired. Otherwise the tool asks for human review.
 
-**Heuristic vs Gemini in practice:** the Streamlit "Heuristic only" mode passes a `MockClient`, not `None`. The mock returns non-JSON for analysis, so analysis falls back to heuristics. The fixer step, however, still calls the mock (see Failure mode 3).
 
 ---
 
