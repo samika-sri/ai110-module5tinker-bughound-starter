@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import re
@@ -128,7 +129,7 @@ class BugHoundAgent:
     def _heuristic_analyze(self, code: str) -> List[Dict[str, str]]:
         issues: List[Dict[str, str]] = []
 
-        if "print(" in code:
+        if self._has_print_call(code):
             issues.append(
                 {
                     "type": "Code Quality",
@@ -156,6 +157,24 @@ class BugHoundAgent:
             )
 
         return issues
+
+    def _has_print_call(self, code: str) -> bool:
+        """
+        Guardrail: only flag real print() calls, not the text "print(" inside
+        strings or comments. Flagging text leads the fixer to rewrite string
+        literals, which silently changes behavior.
+
+        If the code can't be parsed, fall back to the plain text check so
+        broken code is still flagged rather than silently passed.
+        """
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            return "print(" in code
+        return any(
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "print"
+            for node in ast.walk(tree)
+        )
 
     def _heuristic_fix(self, code: str, issues: List[Dict[str, str]]) -> str:
         fixed = code
